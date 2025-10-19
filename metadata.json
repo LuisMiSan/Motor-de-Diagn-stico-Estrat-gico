@@ -1,0 +1,7 @@
+{
+  "name": "Motor de Diagnóstico Estratégico",
+  "description": "Una aplicación de IA para automatizar el análisis de operaciones, el rediseño de procesos de negocio y la cuantificación del impacto financiero, ayudando a las empresas a ascender en la jerarquía de valor.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}
