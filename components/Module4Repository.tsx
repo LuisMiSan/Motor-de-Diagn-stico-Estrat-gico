@@ -1,6 +1,7 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import { Case, SolutionCategory } from '../types';
-import { ArchiveBoxIcon, ArrowsRightLeftIcon, LightBulbIcon, ChartBarIcon, MagnifyingGlassIcon } from './Icons';
+import { ArchiveBoxIcon, ArrowsRightLeftIcon, LightBulbIcon, ChartBarIcon, MagnifyingGlassIcon, ChevronUpIcon, ChevronDownIcon } from './Icons';
 
 const getCategoryIcon = (category: string) => {
     switch (category) {
@@ -37,7 +38,7 @@ const CaseCard: React.FC<{ caseData: Case }> = ({ caseData }) => {
                         <p className="font-bold text-lg" style={{ color: tierColors[caseData.tier - 1] }}>{caseData.tier}</p>
                     </div>
                      <button className="text-dark-text-secondary hover:text-white transition-transform duration-300" style={{ transform: isExpanded ? 'rotate(180deg)' : 'rotate(0deg)'}}>
-                        <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
+                        <ChevronDownIcon className="w-6 h-6" />
                     </button>
                 </div>
             </div>
@@ -83,11 +84,32 @@ interface Props {
   cases: Case[];
 }
 
+type SortKey = 'id' | 'tier';
+type SortDirection = 'asc' | 'desc';
+
+const SortButton: React.FC<{
+    label: string;
+    sortKey: SortKey;
+    currentSort: { key: SortKey; direction: SortDirection };
+    onClick: (key: SortKey) => void;
+}> = ({ label, sortKey, currentSort, onClick }) => {
+    const isActive = currentSort.key === sortKey;
+    return (
+        <button onClick={() => onClick(sortKey)} className={`flex items-center gap-1 px-3 py-1 text-xs rounded transition-colors ${isActive ? 'bg-brand-primary text-white font-semibold' : 'text-dark-text-secondary hover:bg-dark-border'}`}>
+            {label}
+            {isActive && (
+                currentSort.direction === 'asc' ? <ChevronUpIcon className="w-3 h-3" /> : <ChevronDownIcon className="w-3 h-3" />
+            )}
+        </button>
+    );
+};
+
+
 const Module4Repository: React.FC<Props> = ({ cases }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [tierFilter, setTierFilter] = useState<number | null>(null);
   const [categoryFilter, setCategoryFilter] = useState<SolutionCategory | null>(null);
-  const [currentPage, setCurrentPage] = useState(1);
+  const [sortConfig, setSortConfig] = useState<{ key: SortKey; direction: SortDirection }>({ key: 'id', direction: 'desc' });
   const [searchHistory, setSearchHistory] = useState<SearchHistoryItem[]>(() => {
     try {
       const savedHistory = localStorage.getItem('repositorySearchHistory');
@@ -98,16 +120,23 @@ const Module4Repository: React.FC<Props> = ({ cases }) => {
     }
   });
 
-  const ITEMS_PER_PAGE = 5;
+  const parentRef = useRef<HTMLDivElement>(null);
 
   const categoryLabels: { [key in SolutionCategory]: string } = {
       [SolutionCategory.PROCESS]: 'Proceso',
       [SolutionCategory.ORGANIZATION]: 'Organización',
       [SolutionCategory.TECHNOLOGY]: 'Tecnología'
   };
+  
+  const handleSort = (key: SortKey) => {
+    if (sortConfig.key === key) {
+        setSortConfig({ key, direction: sortConfig.direction === 'asc' ? 'desc' : 'asc' });
+    } else {
+        setSortConfig({ key, direction: key === 'id' ? 'desc' : 'asc' });
+    }
+  };
 
   useEffect(() => {
-    // No guardar el estado inicial vacío
     if (!searchQuery && !tierFilter && !categoryFilter) {
       return;
     }
@@ -120,14 +149,13 @@ const Module4Repository: React.FC<Props> = ({ cases }) => {
       };
   
       setSearchHistory(prevHistory => {
-        // Eliminar duplicados para mover la búsqueda repetida al frente
         const filteredPrevHistory = prevHistory.filter(
           item => !(item.query === newHistoryItem.query && item.tier === newHistoryItem.tier && item.category === newHistoryItem.category)
         );
         const updatedHistory = [newHistoryItem, ...filteredPrevHistory];
-        return updatedHistory.slice(0, 5); // Mantener solo los últimos 5
+        return updatedHistory.slice(0, 5);
       });
-    }, 500); // Debounce para no guardar en cada pulsación de tecla
+    }, 500);
   
     return () => {
       clearTimeout(handler);
@@ -144,7 +172,7 @@ const Module4Repository: React.FC<Props> = ({ cases }) => {
 
 
   const filteredCases = useMemo(() => {
-    return cases.filter(c => {
+    let result = cases.filter(c => {
       const query = searchQuery.toLowerCase();
       
       const searchMatch = query === '' || c.symptom.toLowerCase().includes(query) || c.rootCause.toLowerCase().includes(query);
@@ -153,23 +181,34 @@ const Module4Repository: React.FC<Props> = ({ cases }) => {
       
       return searchMatch && tierMatch && categoryMatch;
     });
-  }, [cases, searchQuery, tierFilter, categoryFilter]);
 
-  useEffect(() => {
-    setCurrentPage(1);
-  }, [searchQuery, tierFilter, categoryFilter]);
+    result.sort((a, b) => {
+        if (sortConfig.key === 'id') {
+            const comparison = a.id.localeCompare(b.id);
+            return sortConfig.direction === 'asc' ? comparison : -comparison;
+        }
+        if (sortConfig.key === 'tier') {
+            const comparison = a.tier - b.tier;
+            return sortConfig.direction === 'asc' ? comparison : -comparison;
+        }
+        return 0;
+    });
+
+    return result;
+  }, [cases, searchQuery, tierFilter, categoryFilter, sortConfig]);
+
+  const rowVirtualizer = useVirtualizer({
+      count: filteredCases.length,
+      getScrollElement: () => parentRef.current,
+      estimateSize: () => 90, // Estimación de la altura de una tarjeta colapsada
+      overscan: 5,
+  });
 
   const handleHistoryClick = (item: SearchHistoryItem) => {
     setSearchQuery(item.query);
     setTierFilter(item.tier);
     setCategoryFilter(item.category);
   };
-
-  const totalPages = Math.ceil(filteredCases.length / ITEMS_PER_PAGE);
-  const paginatedCases = filteredCases.slice(
-      (currentPage - 1) * ITEMS_PER_PAGE,
-      currentPage * ITEMS_PER_PAGE
-  );
 
   return (
     <div className="p-6 bg-dark-card rounded-lg border border-dark-border">
@@ -192,7 +231,7 @@ const Module4Repository: React.FC<Props> = ({ cases }) => {
                     className="w-full p-3 pl-10 bg-dark-bg border border-dark-border rounded-lg focus:ring-2 focus:ring-brand-primary focus:border-brand-primary transition"
                 />
             </div>
-             <div className="flex flex-col sm:flex-row sm:flex-wrap gap-x-6 gap-y-3">
+             <div className="flex flex-col sm:flex-row sm:flex-wrap gap-x-6 gap-y-4">
                 <div className="flex items-center gap-2">
                     <p className="font-semibold text-sm text-dark-text-secondary flex-shrink-0">Tier:</p>
                     <div className="flex gap-1 bg-dark-bg p-1 rounded-md">
@@ -209,6 +248,13 @@ const Module4Repository: React.FC<Props> = ({ cases }) => {
                          {Object.values(SolutionCategory).map(cat => (
                             <button key={cat} onClick={() => setCategoryFilter(cat)} className={`px-3 py-1 text-xs rounded transition-colors ${categoryFilter === cat ? 'bg-brand-primary text-white font-semibold' : 'text-dark-text-secondary hover:bg-dark-border'}`}>{categoryLabels[cat]}</button>
                          ))}
+                    </div>
+                </div>
+                <div className="flex items-center gap-2">
+                    <p className="font-semibold text-sm text-dark-text-secondary flex-shrink-0">Ordenar:</p>
+                    <div className="flex gap-1 bg-dark-bg p-1 rounded-md">
+                        <SortButton label="Fecha" sortKey="id" currentSort={sortConfig} onClick={handleSort} />
+                        <SortButton label="Tier" sortKey="tier" currentSort={sortConfig} onClick={handleSort} />
                     </div>
                 </div>
             </div>
@@ -241,30 +287,28 @@ const Module4Repository: React.FC<Props> = ({ cases }) => {
           <h3 className="mt-4 text-lg font-semibold text-dark-text-secondary">El repositorio está vacío.</h3>
           <p className="mt-1 text-dark-text-secondary/70">Complete un análisis y guarde el caso para verlo aquí.</p>
         </div>
-      ) : paginatedCases.length > 0 ? (
-        <div className="space-y-4">
-          {paginatedCases.map(c => <CaseCard key={c.id} caseData={c} />)}
-          {totalPages > 1 && (
-            <div className="flex justify-center items-center gap-4 mt-6 pt-4 border-t border-dark-border">
-                <button 
-                    onClick={() => setCurrentPage(p => p - 1)} 
-                    disabled={currentPage === 1}
-                    className="px-4 py-2 text-sm font-semibold bg-dark-bg border border-dark-border rounded-md hover:bg-dark-border disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                    &larr; Anterior
-                </button>
-                <span className="text-sm font-medium text-dark-text-secondary">
-                    Página {currentPage} de {totalPages}
-                </span>
-                <button 
-                    onClick={() => setCurrentPage(p => p + 1)} 
-                    disabled={currentPage === totalPages}
-                    className="px-4 py-2 text-sm font-semibold bg-dark-bg border border-dark-border rounded-md hover:bg-dark-border disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                    Siguiente &rarr;
-                </button>
+      ) : filteredCases.length > 0 ? (
+        <div ref={parentRef} className="list-container" style={{ height: `60vh`, overflow: 'auto' }}>
+            <div style={{ height: `${rowVirtualizer.getTotalSize()}px`, width: '100%', position: 'relative' }}>
+                {rowVirtualizer.getVirtualItems().map(virtualItem => {
+                    const caseData = filteredCases[virtualItem.index];
+                    return (
+                        <div
+                            key={virtualItem.key}
+                            style={{
+                                position: 'absolute',
+                                top: 0,
+                                left: 0,
+                                width: '100%',
+                                transform: `translateY(${virtualItem.start}px)`,
+                                padding: '0.5rem 0.2rem'
+                            }}
+                        >
+                            <CaseCard caseData={caseData} />
+                        </div>
+                    );
+                })}
             </div>
-          )}
         </div>
       ) : (
         <div className="text-center py-12 px-6 bg-dark-bg rounded-lg border-2 border-dashed border-dark-border">

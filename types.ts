@@ -51,3 +51,9 @@ export interface Case {
   tier: number;
   roi: ROIData;
 }
+
+export interface Todo {
+  id: string;
+  text: string;
+  completed: boolean;
+}

@@ -1,13 +1,15 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { DiagnosisResult, RedesignResult, ImpactResult, Case } from './types';
+import { DiagnosisResult, RedesignResult, ImpactResult, Case, Todo } from './types';
 import Module1Diagnosis from './components/Module1Diagnosis';
 import Module2Redesign from './components/Module2Redesign';
 import Module3Impact from './components/Module3Impact';
 import Module4Repository from './components/Module4Repository';
-import { exportToPDF } from './services/pdfService';
+import Module5TodoList from './components/Module5TodoList';
+import { exportToPDF, exportToJSON } from './services/pdfService';
 import Spinner from './components/Spinner';
-import { BrainCircuitIcon, BookmarkSquareIcon, ArchiveBoxIcon, ChartBarIcon, DocumentArrowDownIcon, CheckBadgeIcon } from './components/Icons';
+import { BrainCircuitIcon, BookmarkSquareIcon, ArchiveBoxIcon, ChartBarIcon, DocumentArrowDownIcon, CheckBadgeIcon, ClipboardDocumentCheckIcon, CodeBracketIcon } from './components/Icons';
+import { Logo } from './components/Logo';
 
 const LockedModule: React.FC<{ title: string; message: string; icon: React.ReactNode }> = ({ title, message, icon }) => (
     <div className="p-6 bg-dark-card rounded-lg border-2 border-dashed border-dark-border flex flex-col items-center justify-center text-center h-48">
@@ -49,6 +51,9 @@ const NavBar: React.FC<{ activeSection: string; onNavClick: (href: string) => vo
             <NavItem href="#repository" label="Repositorio" isActive={activeSection === 'repository'} onClick={onNavClick}>
                 <ArchiveBoxIcon className="w-6 h-6" />
             </NavItem>
+            <NavItem href="#todolist" label="Tareas" isActive={activeSection === 'todolist'} onClick={onNavClick}>
+                <ClipboardDocumentCheckIcon className="w-6 h-6" />
+            </NavItem>
         </div>
     </nav>
 );
@@ -66,8 +71,18 @@ const App: React.FC = () => {
         return [];
     }
   });
+  const [todos, setTodos] = useState<Todo[]>(() => {
+    try {
+        const savedTodos = localStorage.getItem('todoListTasks');
+        return savedTodos ? JSON.parse(savedTodos) : [];
+    } catch (error) {
+        console.error("Error al cargar tareas desde localStorage", error);
+        return [];
+    }
+  });
   const [isSaved, setIsSaved] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
+  const [isExportingJSON, setIsExportingJSON] = useState(false);
   const [showSaveConfirmation, setShowSaveConfirmation] = useState(false);
   const [activeSection, setActiveSection] = useState('diagnosis');
   
@@ -77,6 +92,7 @@ const App: React.FC = () => {
   const redesignRef = useRef<HTMLDivElement>(null);
   const impactRef = useRef<HTMLDivElement>(null);
   const repositoryRef = useRef<HTMLDivElement>(null);
+  const todoListRef = useRef<HTMLDivElement>(null);
 
   const handleNavClick = useCallback((hash: string) => {
     const id = hash.substring(1);
@@ -93,6 +109,7 @@ const App: React.FC = () => {
         { id: 'redesign', ref: redesignRef },
         { id: 'impact', ref: impactRef },
         { id: 'repository', ref: repositoryRef },
+        { id: 'todolist', ref: todoListRef },
     ];
 
     const observer = new IntersectionObserver(
@@ -129,6 +146,14 @@ const App: React.FC = () => {
         console.error("Error al guardar casos en localStorage", error);
     }
   }, [repository]);
+
+  useEffect(() => {
+    try {
+        localStorage.setItem('todoListTasks', JSON.stringify(todos));
+    } catch (error) {
+        console.error("Error al guardar tareas en localStorage", error);
+    }
+  }, [todos]);
 
   const handleDiagnosisComplete = useCallback((result: DiagnosisResult) => {
     setDiagnosisResult(result);
@@ -188,12 +213,46 @@ const App: React.FC = () => {
     }
   };
 
+  const handleExportJSON = async () => {
+    if (!diagnosisResult || !redesignResult || !impactResult) return;
+    setIsExportingJSON(true);
+    try {
+        await exportToJSON(diagnosisResult, redesignResult, impactResult);
+    } catch (error) {
+        console.error("Error al exportar a JSON:", error);
+        alert("Hubo un error al generar el JSON. Por favor, intente de nuevo.");
+    } finally {
+        setIsExportingJSON(false);
+    }
+  };
+
   const handleReset = () => {
     setDiagnosisResult(null);
     setRedesignResult(null);
     setImpactResult(null);
     setIsSaved(false);
     diagnosisRef.current?.scrollIntoView({ behavior: 'smooth' });
+  };
+  
+  const handleAddTodo = (text: string) => {
+    const newTodo: Todo = {
+        id: new Date().toISOString(),
+        text,
+        completed: false,
+    };
+    setTodos(prev => [newTodo, ...prev]);
+  };
+
+  const handleToggleTodo = (id: string) => {
+    setTodos(prev => 
+        prev.map(todo =>
+            todo.id === id ? { ...todo, completed: !todo.completed } : todo
+        )
+    );
+  };
+
+  const handleDeleteTodo = (id: string) => {
+    setTodos(prev => prev.filter(todo => todo.id !== id));
   };
 
   return (
@@ -202,7 +261,7 @@ const App: React.FC = () => {
       <div className="max-w-7xl mx-auto">
         <header className="flex flex-col sm:flex-row justify-between items-center mb-8 pb-4 border-b border-dark-border">
           <div className="flex items-center gap-3 mb-4 sm:mb-0">
-            <BrainCircuitIcon className="w-10 h-10 text-brand-primary" />
+            <Logo className="w-10 h-10" />
             <h1 className="text-2xl sm:text-3xl font-bold text-dark-text-primary tracking-tight">
               Motor de Diagnóstico Estratégico
             </h1>
@@ -251,6 +310,14 @@ const App: React.FC = () => {
                                         {isExporting ? <Spinner/> : <DocumentArrowDownIcon className="w-6 h-6"/>}
                                         {isExporting ? 'Exportando...' : 'Exportar a PDF'}
                                     </button>
+                                    <button
+                                        onClick={handleExportJSON}
+                                        disabled={isExportingJSON}
+                                        className="px-8 py-3 bg-indigo-600 text-white font-bold rounded-lg hover:bg-indigo-700 transition-colors flex items-center justify-center w-full sm:w-auto gap-2 text-lg disabled:bg-gray-500 disabled:cursor-not-allowed"
+                                    >
+                                        {isExportingJSON ? <Spinner/> : <CodeBracketIcon className="w-6 h-6"/>}
+                                        {isExportingJSON ? 'Exportando...' : 'Exportar a JSON'}
+                                    </button>
                                 </div>
                                 <div className="h-10 mt-4">
                                     {showSaveConfirmation && (
@@ -270,6 +337,15 @@ const App: React.FC = () => {
 
             <section id="repository" ref={repositoryRef}>
                 <Module4Repository cases={repository} />
+            </section>
+
+            <section id="todolist" ref={todoListRef}>
+                <Module5TodoList
+                    todos={todos}
+                    onAddTodo={handleAddTodo}
+                    onToggleTodo={handleToggleTodo}
+                    onDeleteTodo={handleDeleteTodo}
+                />
             </section>
         </main>
       </div>

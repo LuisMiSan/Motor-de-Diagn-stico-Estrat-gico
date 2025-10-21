@@ -21,7 +21,7 @@ const renderSVGToCanvas = async (svg: string): Promise<HTMLCanvasElement> => {
 
     const canvas = await html2canvas(container, {
         backgroundColor: '#ffffff',
-        scale: 2, // Aumentar la resolución para mejor calidad en el PDF
+        scale: 3, // Aumentar la resolución para mejor calidad en el PDF
     });
 
     document.body.removeChild(container);
@@ -150,18 +150,28 @@ export const exportToPDF = async (
     doc.text('Soluciones Propuestas:', margin, y);
     y += 6;
 
-    doc.setFont('helvetica', 'normal');
     doc.setFontSize(11);
     redesign.solutions.forEach(sol => {
-        checkPageBreak(15);
+        checkPageBreak(20);
+        const currentY = y;
+
         doc.setFont('helvetica', 'bold');
-        doc.text(`• ${sol.category}:`, margin + 5, y);
+        doc.setTextColor(45, 55, 72);
+        const categoryText = `• ${sol.category}:`;
+        doc.text(categoryText, margin + 5, currentY);
+        
+        const categoryWidth = doc.getTextDimensions(categoryText).w;
+        
         doc.setFont('helvetica', 'normal');
-        const descWidth = pageWidth - margin * 2 - 10;
-        const lines = doc.splitTextToSize(sol.description, descWidth);
-        const textIndent = doc.getTextDimensions(`• ${sol.category}: `).w;
-        doc.text(lines, margin + 5, y, { hangingIndent: 4 });
-        y += (doc.getTextDimensions(lines).h) + 3;
+        doc.setTextColor(100, 116, 139);
+        const descriptionX = margin + 5 + categoryWidth + 2;
+        const descriptionMaxWidth = pageWidth - descriptionX - margin;
+        
+        const descriptionLines = doc.splitTextToSize(sol.description, descriptionMaxWidth);
+        doc.text(descriptionLines, descriptionX, currentY);
+        
+        const descriptionHeight = doc.getTextDimensions(descriptionLines).h;
+        y = currentY + descriptionHeight + 4;
     });
     y += 8;
 
@@ -220,4 +230,28 @@ export const exportToPDF = async (
     wrappedText(impact.communication, margin, pageWidth - margin * 2);
 
     doc.save('Diagnostico_Estrategico.pdf');
+};
+
+export const exportToJSON = async (
+    diagnosis: DiagnosisResult,
+    redesign: RedesignResult,
+    impact: ImpactResult
+) => {
+    const exportData = {
+        diagnostico: diagnosis,
+        rediseño: redesign,
+        impacto: impact,
+    };
+
+    const jsonString = JSON.stringify(exportData, null, 2);
+    const blob = new Blob([jsonString], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'Diagnostico_Estrategico.json';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
 };
